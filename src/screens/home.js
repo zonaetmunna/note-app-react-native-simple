@@ -1,103 +1,196 @@
-import React, { useEffect } from "react";
-import {View,Text,Pressable,Image,FlatList,ActivityIndicator,} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { AntDesign } from "@expo/vector-icons";
-import {collection,deleteDoc,doc,onSnapshot,query,where,} from "firebase/firestore";
-import { db } from "../../App";
+import { AntDesign } from '@expo/vector-icons';
+import React, { useEffect, useState } from 'react';
+import {
+	ActivityIndicator,
+	CheckBox,
+	FlatList,
+	Image,
+	Pressable,
+	StyleSheet,
+	Text,
+	View,
+} from 'react-native';
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { deleteNote, getUserNotes } from '../api/note'; // Import API functions
+import { useAuth } from '../context/AuthContext';
 
-export default function Home({ navigation, route, user }) {
-  const [notes, setNotes] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
+export default function Home({ navigation }) {
+	const { db, user } = useAuth();
+	const [notes, setNotes] = useState([]);
+	const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // create the query
-    const q = query(collection(db, "notes"), where("uid", "==", user.uid));
+	useEffect(() => {
+		let unsubscribe;
+		if (user && db) {
+			// Fetch notes using the API function
+			unsubscribe = getUserNotes(db, user.uid, setNotes, setLoading);
+		}
+		return () => unsubscribe && unsubscribe(); // Clean up the listener
+	}, [user, db]);
 
-    // create listener to listen to the query that we just made
-    const notesListenerSubscription = onSnapshot(q, (querySnapshot) => {
-      console.log("querySnapshot ---> ", querySnapshot);
-      const list = [];
-      querySnapshot.forEach((doc) => {
-        list.push({ ...doc.data(), id: doc.id });
-      });
-      setNotes(list);
-      setLoading(false);
-    });
+	const handleDelete = async (id) => {
+		const result = await deleteNote(db, id); // Use the API function to delete the note
+		if (result.success) {
+			console.log('Note deleted successfully');
+		} else {
+			console.error('Error deleting note:', result.error);
+		}
+	};
 
-    return notesListenerSubscription;
-  }, []);
+	// Render right action for swipeable row
+	const renderRightActions = (itemId) => (
+		<View style={styles.deleteButtonContainer}>
+			<Pressable style={styles.deleteButton} onPress={() => handleDelete(itemId)}>
+				<AntDesign name='delete' size={24} color='white' />
+			</Pressable>
+		</View>
+	);
 
-  const renderItem = ({ item }) => {
-    const { title, description, color } = item;
-    return (
-      <Pressable
-        style={{
-          backgroundColor: color,
-          marginBottom: 25,
-          borderRadius: 16,
-          padding: 15,
-        }}
-        onPress={() => {
-          navigation.navigate("Update", { item });
-        }}
-      >
-        <Pressable
-          style={{
-            position: "absolute",
-            alignSelf: "flex-end",
-            padding: 15,
-            zIndex: 4,
-          }}
-          onPress={() => {
-            deleteDoc(doc(db, "notes", item.id));
-          }}
-        >
-          <AntDesign name="delete" size={24} color="red" />
-        </Pressable>
-        <Text style={{ color: "white", fontSize: 24 }}>{title}</Text>
-        <Text style={{ color: "white", fontSize: 18, marginTop: 16 }}>
-          {description}
-        </Text>
-      </Pressable>
-    );
-  };
+	// Helper function to render checklist items
+	const renderChecklist = (checklist) => (
+		<View>
+			{checklist.map((item, index) => (
+				<View key={index} style={styles.checklistItem}>
+					<CheckBox value={item.checked} />
+					<Text style={styles.checklistText}>{item.label}</Text>
+				</View>
+			))}
+		</View>
+	);
 
-  // go to create page
-  const onPressCreate = () => {
-    navigation.navigate("Create");
-  };
+	// Render note card with swipeable action and handle different note types
+	const renderItem = ({ item }) => (
+		<GestureHandlerRootView>
+			<Swipeable renderRightActions={() => renderRightActions(item.id)} overshootRight={false}>
+				<View style={[styles.card, { backgroundColor: item.color }]}>
+					<Pressable onPress={() => navigation.navigate('Update', { item })}>
+						{/* If the note has an image, display it */}
+						{item.image && <Image source={{ uri: item.image }} style={styles.noteImage} />}
 
-  if (loading) {
-    return (
-      <SafeAreaView
-        style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
-      >
-        <ActivityIndicator />
-      </SafeAreaView>
-    );
-  }
+						<Text style={styles.title}>{item.title}</Text>
 
-  return (
-    <SafeAreaView style={{ flex: 1 }}>
-      <View
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-          padding: 20,
-        }}
-      >
-        <Text>My Notes</Text>
-        <Pressable onPress={onPressCreate}>
-          <AntDesign name="pluscircleo" size={24} color="black" />
-        </Pressable>
-      </View>
+						{/* Render different content based on note type */}
+						{item.type === 'Checklist' ? (
+							renderChecklist(item.checklist) // Render checklist items
+						) : (
+							<Text style={styles.description}>{item.description}</Text>
+						)}
+					</Pressable>
+				</View>
+			</Swipeable>
+		</GestureHandlerRootView>
+	);
 
-      <FlatList
-        data={notes}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.title}
-        contentContainerStyle={{ padding: 20 }}
-      />
-    </SafeAreaView>
-  );
+	if (loading) {
+		return (
+			<SafeAreaView style={styles.centered}>
+				<ActivityIndicator />
+			</SafeAreaView>
+		);
+	}
+
+	return (
+		<SafeAreaView style={{ flex: 1 }}>
+			<View style={styles.header}>
+				<Text style={styles.headerTitle}>My Notes</Text>
+				<Pressable onPress={() => navigation.navigate('Create')}>
+					<AntDesign name='pluscircleo' size={24} color='black' />
+				</Pressable>
+			</View>
+
+			<FlatList
+				data={notes}
+				renderItem={renderItem}
+				keyExtractor={(item) => item.id}
+				contentContainerStyle={{ padding: 20 }}
+			/>
+		</SafeAreaView>
+	);
 }
+
+const styles = StyleSheet.create({
+	// Centered view for loading spinner
+	centered: {
+		flex: 1,
+		justifyContent: 'center',
+		alignItems: 'center',
+	},
+
+	// Modern header with shadow
+	header: {
+		flexDirection: 'row',
+		justifyContent: 'space-between',
+		alignItems: 'center',
+		padding: 20,
+		backgroundColor: '#fff',
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 4,
+		elevation: 5, // For Android shadow
+		borderBottomLeftRadius: 15,
+		borderBottomRightRadius: 15,
+	},
+	headerTitle: {
+		fontSize: 20,
+		fontWeight: 'bold',
+		color: '#333',
+	},
+
+	// Modern card design with shadow
+	card: {
+		borderRadius: 15,
+		padding: 20,
+		marginBottom: 15,
+		shadowColor: '#000',
+		shadowOffset: { width: 0, height: 2 },
+		shadowOpacity: 0.1,
+		shadowRadius: 4,
+		elevation: 5, // For Android shadow
+	},
+
+	title: {
+		fontSize: 18,
+		fontWeight: 'bold',
+		color: '#fff',
+		marginBottom: 5,
+	},
+	description: {
+		fontSize: 14,
+		color: '#eee',
+	},
+
+	// Styling for the note image
+	noteImage: {
+		width: '100%',
+		height: 150,
+		borderRadius: 15,
+		marginBottom: 10,
+	},
+
+	// Checklist item styling
+	checklistItem: {
+		flexDirection: 'row',
+		alignItems: 'center',
+		marginBottom: 10,
+	},
+	checklistText: {
+		marginLeft: 10,
+		color: '#eee',
+	},
+
+	// Delete button for swipe
+	deleteButtonContainer: {
+		width: 40,
+		backgroundColor: '#FF4D4D',
+		justifyContent: 'center',
+		alignItems: 'center',
+		borderTopRightRadius: 15,
+		borderBottomRightRadius: 15,
+	},
+	deleteButton: {
+		justifyContent: 'center',
+		alignItems: 'center',
+	},
+});
