@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 
 export default function CustomDrawerContent(props) {
 	const { user, logout } = useAuth(); // Access user info and logout function from AuthContext
+	console.log('🚀 ~ CustomDrawerContent ~ user:', user);
 
 	return (
 		<DrawerContentScrollView
@@ -13,12 +14,7 @@ export default function CustomDrawerContent(props) {
 		>
 			<View>
 				<View style={styles.userInfoSection}>
-					{user?.photoURL ? (
-						<Image source={{ uri: user.photoURL }} style={styles.userImage} />
-					) : (
-						// Default avatar if no photoURL is available
-						<Image source={require('../assets/default-avatar.png')} style={styles.userImage} />
-					)}
+					{user?.photoURL && <Image source={{ uri: user?.photoURL }} style={styles.userImage} />}
 					<Text style={styles.username}>{user?.displayName || 'User Name'}</Text>
 					<Text style={styles.userEmail}>{user?.email}</Text>
 				</View>
